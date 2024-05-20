@@ -2,6 +2,12 @@ from django.db import models
 
 
 class TelegramUser(models.Model):
+    DEPARTMENT_CHOICES = [
+        ('contract', 'Договорной отдел'),
+        ('distribution', 'Отдел распределения'),
+        ('work', 'Рабочий отдел'),
+    ]
+
     user_id = models.BigIntegerField(
         unique=True,
         verbose_name="ID пользователя",
@@ -27,6 +33,13 @@ class TelegramUser(models.Model):
         null=True,
         verbose_name="Фамилия",
         help_text="Фамилия пользователя в Telegram.",
+    )
+    department = models.CharField(
+        max_length=20,
+        choices=DEPARTMENT_CHOICES,
+        blank=True,
+        null=True,
+        verbose_name="Отдел",
     )
     created_at = models.DateTimeField(
         auto_now_add=True,

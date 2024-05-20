@@ -1,28 +1,19 @@
 from django.contrib import admin
 from .models import TelegramUser, Object, Construction, Stage
 
-@admin.register(Object)
-class ObjectAdmin(admin.ModelAdmin):
-    list_display = ('name',)
-
-@admin.register(Construction)
-class ConstructionAdmin(admin.ModelAdmin):
-    list_display = ('name', 'object', 'area')
-
-@admin.register(Stage)
-class StageAdmin(admin.ModelAdmin):
-    list_display = ('name', 'construction', 'volume')
-
-
 @admin.register(TelegramUser)
 class TelegramUserAdmin(admin.ModelAdmin):
-    list_display = ('user_id', 'username', 'first_name', 'last_name', 'created_at')
-    list_filter = ('username', 'created_at')
-    search_fields = ('user_id', 'username', 'first_name', 'last_name')
+    list_display = ('user_id', 'username', 'first_name', 'last_name', 'department', 'created_at')
+    list_filter = ('department',)
+    search_fields = ('username', 'first_name', 'last_name', 'user_id')
     readonly_fields = ('created_at',)
+
     fieldsets = (
-        ('User Information', {
-            'fields': ('user_id', 'username', 'first_name', 'last_name', 'created_at')
+        (None, {
+            'fields': ('user_id', 'username', 'first_name', 'last_name', 'department')
+        }),
+        ('Dates', {
+            'fields': ('created_at',)
         }),
     )
     ordering = ['-created_at']
@@ -32,3 +23,16 @@ class TelegramUserAdmin(admin.ModelAdmin):
 
     get_name.short_description = 'Name'
     get_name.admin_order_field = 'username'
+
+@admin.register(Object)
+class ObjectAdmin(admin.ModelAdmin):
+    list_display = ['name']
+
+@admin.register(Construction)
+class ConstructionAdmin(admin.ModelAdmin):
+    list_display = ['name', 'object', 'area']
+
+@admin.register(Stage)
+class StageAdmin(admin.ModelAdmin):
+    list_display = ['name', 'construction', 'volume']
+
