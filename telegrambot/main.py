@@ -1,10 +1,8 @@
 import logging
 import telebot
-from telebot import types
-
 from django.conf import settings
 from .models import Object, Construction, Stage, TelegramUser
-from .keyboards import get_keyboard, get_back_keyboard
+from .keyboards import get_keyboard, get_back_keyboard, get_objects_keyboard, get_constructions_keyboard
 from django.core.exceptions import ObjectDoesNotExist
 
 logging.basicConfig(
@@ -24,14 +22,11 @@ def start(message):
         model_user.username = user.username
         model_user.first_name = user.first_name
         model_user.last_name = user.last_name
-
         model_user.save()
  
         logging.info(f'Был создан новый аккаунт {model_user.get_name()}')
     
     bot.send_message(message.chat.id, f"Привет, {model_user.get_name()}!", reply_markup=get_keyboard())
-
-
 
 @bot.message_handler(func=lambda message: message.text.lower() == "добавить объект")
 def add_object(message):
@@ -53,14 +48,6 @@ def save_object(message):
     new_object.save()
 
     bot.send_message(message.chat.id, f"Объект '{new_object.name}' успешно добавлен", reply_markup=get_keyboard())
-
-def get_objects_keyboard():
-    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-    objects = Object.objects.all()
-    for obj in objects:
-        keyboard.add(types.KeyboardButton(obj.name))
-    keyboard.add(types.KeyboardButton("Назад"))
-    return keyboard
 
 @bot.message_handler(func=lambda message: message.text.lower() == "добавить конструкцию")
 def add_construction(message):
@@ -103,24 +90,6 @@ def save_construction_area(message, selected_object, construction_name):
         bot.send_message(message.chat.id, "Пожалуйста, введите корректное значение площади в квадратных метрах:", reply_markup=get_back_keyboard())
         bot.register_next_step_handler(message, save_construction_area, selected_object, construction_name)
 
-
-def get_objects_keyboard():
-    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-    objects = Object.objects.all()
-    for obj in objects:
-        keyboard.add(types.KeyboardButton(obj.name))
-    keyboard.add(types.KeyboardButton("Назад"))
-    return keyboard
-
-def get_constructions_keyboard(object_name):
-    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-    obj = Object.objects.get(name=object_name)
-    constructions = obj.constructions.all()
-    for construction in constructions:
-        keyboard.add(types.KeyboardButton(construction.name))
-    keyboard.add(types.KeyboardButton("Назад"))
-    return keyboard
-
 @bot.message_handler(func=lambda message: message.text.lower() == "добавить этап")
 def add_stage(message):
     bot.send_message(message.chat.id, "Выберите объект, к которому нужно добавить этап:", reply_markup=get_objects_keyboard())
@@ -146,7 +115,13 @@ def select_construction_for_stage(message, selected_object):
 
     try:
         selected_construction = Construction.objects.get(object=selected_object, name=message.text)
-        bot.send_message(message.chat.id, f"Выбрана конструкция: {selected_construction.name}. Введите название нового этапа:", reply_markup=get_back_keyboard())
+        existing_stages = Stage.objects.filter(construction=selected_construction)
+        
+        if existing_stages:
+            stages_list = "\n".join([f"{i + 1}. {stage.name} ({stage.volume} м²)" for i, stage in enumerate(existing_stages)])
+            bot.send_message(message.chat.id, f"В выбранной конструкции уже есть следующие этапы:\n{stages_list}")
+        
+        bot.send_message(message.chat.id, f"Введите название нового этапа для конструкции '{selected_construction.name}':", reply_markup=get_back_keyboard())
         bot.register_next_step_handler(message, save_stage, selected_construction)
     except Construction.DoesNotExist:
         bot.send_message(message.chat.id, "Конструкция не найдена. Введите корректное название конструкции или нажмите 'назад'.", reply_markup=get_back_keyboard())
@@ -159,23 +134,25 @@ def save_stage(message, selected_construction):
 
     stage_name = message.text
     bot.send_message(message.chat.id, "Введите объем этапа в квадратных метрах:", reply_markup=get_back_keyboard())
-    bot.register_next_step_handler(message, save_stage_volume, selected_construction, stage_name)
+    bot.register_next_step_handler(message, save_stage_volume, selected_construction, stage_name, selected_construction.area)
 
-def save_stage_volume(message, selected_construction, stage_name):
+def save_stage_volume(message, selected_construction, stage_name, max_volume):
     if message.text.lower() == "назад":
         bot.send_message(message.chat.id, "Добавление этапа отменено.", reply_markup=get_keyboard())
         return
 
     try:
-        volume = float(message.text)
-        new_stage = Stage(construction=selected_construction, name=stage_name, volume=volume)
-        new_stage.save()
-        bot.send_message(message.chat.id, f"Этап '{new_stage.name}' с объемом {new_stage.volume} м² успешно добавлен к конструкции '{selected_construction.name}'.", reply_markup=get_keyboard())
+        volume = int(message.text)
+        if volume > max_volume:
+            bot.send_message(message.chat.id, f"Объем этапа не может превышать площадь конструкции ({max_volume} м²). Пожалуйста, введите корректное значение объема в квадратных метрах:", reply_markup=get_back_keyboard())
+            bot.register_next_step_handler(message, save_stage_volume, selected_construction, stage_name, max_volume)
+        else:
+            new_stage = Stage(construction=selected_construction, name=stage_name, volume=volume)
+            new_stage.save()
+            bot.send_message(message.chat.id, f"Этап '{new_stage.name}' с объемом {new_stage.volume} м² успешно добавлен к конструкции '{selected_construction.name}'.", reply_markup=get_keyboard())
     except ValueError:
         bot.send_message(message.chat.id, "Пожалуйста, введите корректное значение объема в квадратных метрах:", reply_markup=get_back_keyboard())
-        bot.register_next_step_handler(message, save_stage_volume, selected_construction, stage_name)
-
-
+        bot.register_next_step_handler(message, save_stage_volume, selected_construction, stage_name, max_volume)
 
 def RunBot():
     try:
