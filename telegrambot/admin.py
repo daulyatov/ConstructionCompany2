@@ -26,7 +26,7 @@ class TelegramUserAdmin(admin.ModelAdmin):
 
 @admin.register(Object)
 class ObjectAdmin(admin.ModelAdmin):
-    list_display = ['name']
+    list_display = ['name', 'responsible_person']
 
 @admin.register(Construction)
 class ConstructionAdmin(admin.ModelAdmin):

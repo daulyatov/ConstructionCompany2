@@ -1,6 +1,5 @@
 from django.db import models
 
-
 class TelegramUser(models.Model):
     DEPARTMENT_CHOICES = [
         ('contract', 'Договорной отдел'),
@@ -68,6 +67,7 @@ class TelegramUser(models.Model):
 
 class Object(models.Model):
     name = models.CharField(max_length=255)
+    responsible_person = models.ForeignKey(TelegramUser, null=True, blank=True, on_delete=models.SET_NULL, related_name='responsible_for_objects')
 
     def __str__(self):
         return self.name
@@ -84,6 +84,8 @@ class Stage(models.Model):
     construction = models.ForeignKey(Construction, related_name='stages', on_delete=models.CASCADE)
     name = models.CharField(max_length=255)
     volume = models.BigIntegerField()  # объем этапа в м2
+    workers_assigned = models.ManyToManyField(TelegramUser, related_name='assigned_stages', blank=True)
+    deadline = models.DateField(null=True, blank=True)  # Добавьте это поле
 
     def __str__(self):
         return f"{self.name} - {self.construction.name} - {self.construction.object.name}"
