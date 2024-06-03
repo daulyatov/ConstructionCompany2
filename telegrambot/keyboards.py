@@ -97,3 +97,11 @@ def get_confirmation_keyboard():
     keyboard.add(types.KeyboardButton("Да"))
     keyboard.add(types.KeyboardButton("Нет"))
     return keyboard
+
+def get_objects_keyboard_with_back():
+    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    objects = Object.objects.all()
+    for obj in objects:
+        keyboard.add(types.KeyboardButton(obj.name))
+    keyboard.add(types.KeyboardButton("Назад"))
+    return keyboard

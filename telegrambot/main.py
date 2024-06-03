@@ -3,9 +3,10 @@ import telebot
 from telebot import types
 from django.conf import settings
 import datetime
+from django.utils import timezone
 from .models import Object, Construction, Stage, TelegramUser
 from .keyboards import get_back_keyboard, get_contract_keyboard, get_distribution_keyboard, get_objects_keyboard, \
-            get_constructions_keyboard, get_work_keyboard, get_objects_keyboard_for_distribution, get_stages_keyboard, get_confirmation_keyboard, get_workers_keyboard
+            get_constructions_keyboard, get_work_keyboard, get_objects_keyboard_for_distribution, get_stages_keyboard, get_confirmation_keyboard, get_workers_keyboard, get_objects_keyboard_with_back
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -223,7 +224,7 @@ def save_stage_volume(message, selected_construction, stage_name, max_volume):
 
 @bot.message_handler(func=lambda message: message.text.lower() == "назначить ответственного")
 def assign_responsible(message):
-    bot.send_message(message.chat.id, "Выберите объект:", reply_markup=get_objects_keyboard())
+    bot.send_message(message.chat.id, "Выберите объект:", reply_markup=get_objects_keyboard_with_back())
     bot.register_next_step_handler(message, select_object_for_responsible)
 
 def select_object_for_responsible(message):
@@ -239,6 +240,7 @@ def select_object_for_responsible(message):
             keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
             for user in distribution_users:
                 keyboard.add(types.KeyboardButton(user.first_name))
+            keyboard.add(types.KeyboardButton("Назад"))
 
             bot.send_message(message.chat.id, "Выберите ответственного:", reply_markup=keyboard)
             bot.register_next_step_handler(message, save_responsible, selected_object)
@@ -468,6 +470,70 @@ def show_assignments_list(message):
     bot.send_message(message.chat.id, assignments_message, parse_mode="HTML", reply_markup=get_distribution_keyboard())
 
 
+
+
+# Обработчик для кнопки "Начать работу"
+@bot.message_handler(func=lambda message: message.text == "Начать работу")
+def start_work(message):
+    user = message.from_user
+    try:
+        model_user = TelegramUser.objects.get(user_id=user.id, department='work')
+    except TelegramUser.DoesNotExist:
+        bot.send_message(message.chat.id, "Вы не зарегистрированы в рабочем отделе.")
+        return
+    
+    # Получаем этапы, назначенные пользователю, отсортированные по дате
+    assigned_stages = model_user.assigned_stages.filter(deadline__isnull=False).order_by('deadline')
+
+    if not assigned_stages.exists():
+        bot.send_message(message.chat.id, "У вас нет назначенных этапов.")
+        return
+
+    # Создаем кнопки для этапов
+    reply_markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    for stage in assigned_stages:
+        reply_markup.add(types.KeyboardButton(stage.name))
+    reply_markup.add(types.KeyboardButton("Назад"))
+
+    # Отправляем кнопки пользователю
+    bot.send_message(message.chat.id, "Выберите этап:", reply_markup=reply_markup)
+    bot.register_next_step_handler(message, handle_stage_selection)
+
+def handle_stage_selection(message):
+    if message.text == "Назад":
+        bot.send_message(message.chat.id, "Вы вернулись назад.", reply_markup=get_work_keyboard())
+        return
+
+    stage_name = message.text
+    try:
+        stage = Stage.objects.get(name=stage_name)
+    except Stage.DoesNotExist:
+        bot.send_message(message.chat.id, "Этап не найден.")
+        bot.send_message(message.chat.id, "Выберите этап:", reply_markup=start_work(message))
+        return
+
+    construction = stage.construction
+    object = construction.object
+    deadline = stage.deadline
+
+    # Расчет оставшегося времени
+    today = timezone.now().date()
+    delta = deadline - today
+    months_left = delta.days // 30
+    days_left = delta.days % 30
+
+    # Формирование сообщения
+    report_message = (
+        f"<b>Объект:</b> {object.name}\n"
+        f"<b>Конструкция:</b> {construction.name}\n"
+        f"<b>Этап:</b> {stage.name} (объем: {stage.volume} м²)\n"
+        f"<b>Срок выполнения:</b> {deadline.strftime('%d.%m.%Y')}\n"
+        f"<b>Осталось:</b> {months_left} месяцев и {days_left} дней\n"
+        f"<b>Назначенные рабочие:</b> {', '.join([worker.get_name() for worker in stage.workers_assigned.all()])}\n"
+    )
+
+    # Отправка сообщения пользователю
+    bot.send_message(message.chat.id, report_message, parse_mode="HTML", reply_markup=get_work_keyboard())
 
 
 def RunBot():
