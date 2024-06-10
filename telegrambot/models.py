@@ -5,6 +5,7 @@ class TelegramUser(models.Model):
         ('contract', 'Договорной отдел'),
         ('distribution', 'Отдел распределения'),
         ('work', 'Рабочий отдел'),
+        ('director', 'Директор'),
     ]
 
     user_id = models.BigIntegerField(
@@ -64,10 +65,10 @@ class TelegramUser(models.Model):
         verbose_name_plural = "Пользователи Telegram"
         ordering = ["-created_at"]
 
-
 class Object(models.Model):
     name = models.CharField(max_length=255)
     responsible_person = models.ForeignKey(TelegramUser, null=True, blank=True, on_delete=models.SET_NULL, related_name='responsible_for_objects')
+    completed = models.BooleanField(default=False, verbose_name="Выполнен")
 
     def __str__(self):
         return self.name
@@ -76,6 +77,7 @@ class Construction(models.Model):
     object = models.ForeignKey(Object, related_name='constructions', on_delete=models.CASCADE)
     name = models.CharField(max_length=255)
     area = models.BigIntegerField()  # площадь конструкции в м2
+    completed = models.BooleanField(default=False, verbose_name="Выполнен")
 
     def __str__(self):
         return f"{self.name} - {self.object.name}"
@@ -85,7 +87,44 @@ class Stage(models.Model):
     name = models.CharField(max_length=255)
     volume = models.BigIntegerField()  # объем этапа в м2
     workers_assigned = models.ManyToManyField(TelegramUser, related_name='assigned_stages', blank=True)
-    deadline = models.DateField(null=True, blank=True)  # Добавьте это поле
+    start_date = models.DateField(null=True, blank=True, verbose_name="Дата начала")
+    end_date = models.DateField(null=True, blank=True, verbose_name="Дата окончания")
+    number_of_workers = models.IntegerField(default=0, verbose_name="Количество рабочих")
+    completed = models.BooleanField(default=False, verbose_name="Выполнен")
 
     def __str__(self):
         return f"{self.name} - {self.construction.name} - {self.construction.object.name}"
+
+class CompletedWork(models.Model):
+    stage = models.ForeignKey('Stage', related_name='completed_works', on_delete=models.CASCADE)
+    volume = models.FloatField()  # объем выполненной работы в м2
+    date = models.DateField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.stage.name} - {self.volume} м2 - {self.date}"
+
+class DailyReport(models.Model):
+    stage = models.ForeignKey(Stage, related_name='daily_reports', on_delete=models.CASCADE)
+    date = models.DateField(auto_now_add=True)
+    number_of_workers = models.IntegerField()
+    completed_volume = models.FloatField()
+
+    def __str__(self):
+        return f"{self.date} - {self.stage.name} - {self.completed_volume} м2 - {self.number_of_workers} рабочих"
+
+
+class Underperformance(models.Model):
+    REASON_CHOICES = [
+        ('volume', 'Объем'),
+        ('workers', 'Количество рабочих'),
+        ('both', 'Объем и количество рабочих'),
+    ]
+
+    stage = models.ForeignKey(Stage, related_name='underperformances', on_delete=models.CASCADE)
+    date = models.DateField(auto_now_add=True)
+    reason = models.CharField(max_length=7, choices=REASON_CHOICES)  # 'volume', 'workers', 'both'
+    deficit_volume = models.FloatField(null=True, blank=True)  # Volume deficit
+    deficit_workers = models.IntegerField(null=True, blank=True)  # Worker deficit
+
+    def __str__(self):
+        return f"{self.stage} - {self.date} - {self.reason}"
