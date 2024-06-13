@@ -855,22 +855,27 @@ def get_completed_volume(message):
         volume_deficit = daily_volume_needed - completed_volume if completed_volume < daily_volume_needed else 0
         worker_deficit = selected_stage.number_of_workers - number_of_workers if number_of_workers < selected_stage.number_of_workers else 0
 
-        if volume_deficit > 0 and worker_deficit > 0:
-            reason = 'both'
-        elif volume_deficit > 0:
-            reason = 'volume'
-        elif worker_deficit > 0:
-            reason = 'workers'
-        else:
-            reason = None
+        if volume_deficit > 0 or worker_deficit > 0:
+            reason = 'both' if volume_deficit > 0 and worker_deficit > 0 else 'volume' if volume_deficit > 0 else 'workers'
 
-        if reason:
-            Underperformance.objects.create(
+            underperformance = Underperformance.objects.create(
                 stage=selected_stage,
                 reason=reason,
                 deficit_volume=volume_deficit if reason in ['volume', 'both'] else None,
                 deficit_workers=worker_deficit if reason in ['workers', 'both'] else None
             )
+
+            # Отправка сообщения ответственному за объект
+            responsible_person = selected_stage.construction.object.responsible_person
+            if responsible_person:
+                underperformance_info = f"{today.strftime('%d.%m.%Y')}: Не было рабочих: {worker_deficit},\n не выполнено объема: {volume_deficit} м²"
+                message_text = (
+                    f"Объект: {selected_stage.construction.object.name}\n"
+                    f"Конструкция: {selected_stage.construction.name}\n"
+                    f"Этап: {selected_stage.name}\n"
+                    f"Просрочки:\n{underperformance_info}"
+                )
+                bot.send_message(responsible_person.user_id, message_text)
 
         # Отправляем сообщение пользователю о успешном сохранении данных
         bot.send_message(message.chat.id, f"Данные успешно внесены! Остаток объема: {remaining_volume:.1f} м²", reply_markup=get_work_keyboard())
@@ -879,6 +884,7 @@ def get_completed_volume(message):
         bot.send_message(message.chat.id, "Произошла ошибка при сохранении данных.")
         bot.register_next_step_handler(message, get_completed_volume)
         return
+
 
 @bot.message_handler(func=lambda message: message.text == "Гпp")
 def gpr_menu(message):
