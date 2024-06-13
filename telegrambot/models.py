@@ -3,8 +3,8 @@ from django.db import models
 class TelegramUser(models.Model):
     DEPARTMENT_CHOICES = [
         ('contract', 'Договорной отдел'),
-        ('distribution', 'Отдел распределения'),
-        ('work', 'Рабочий отдел'),
+        ('project_manager', 'Руководитель проекта'),
+        ('work', 'Бригадир'),
         ('director', 'Директор'),
     ]
 

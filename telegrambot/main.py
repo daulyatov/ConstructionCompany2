@@ -6,8 +6,8 @@ import datetime
 from datetime import timedelta
 from django.utils import timezone
 from .models import Object, Construction, Stage, TelegramUser, DailyReport, CompletedWork, Underperformance
-from .keyboards import get_back_keyboard, get_contract_keyboard, get_director_keyboard, get_distribution_keyboard, get_objects_keyboard,get_gpr_keyboard, \
-            get_constructions_keyboard, get_work_keyboard, get_objects_keyboard_for_distribution, get_stages_keyboard, get_confirmation_keyboard, get_workers_confirmation_keyboard, get_workers_keyboard, get_objects_keyboard_with_back
+from .keyboards import get_back_keyboard, get_contract_keyboard, get_director_keyboard, get_project_manager_keyboard, get_objects_keyboard,get_gpr_keyboard, \
+            get_constructions_keyboard, get_work_keyboard, get_objects_keyboard_for_project_manager, get_stages_keyboard, get_confirmation_keyboard, get_workers_confirmation_keyboard, get_workers_keyboard, get_objects_keyboard_with_back
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -36,8 +36,8 @@ def start(message):
 def ask_for_department(message):
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
     keyboard.add(types.KeyboardButton("Договорной отдел"))
-    keyboard.add(types.KeyboardButton("Отдел распределения"))
-    keyboard.add(types.KeyboardButton("Рабочий отдел"))
+    keyboard.add(types.KeyboardButton("Руководитель проекта"))
+    keyboard.add(types.KeyboardButton("Бригадир"))
     keyboard.add(types.KeyboardButton("Директор"))
 
     bot.send_message(message.chat.id, "Выберите свой отдел:", reply_markup=keyboard)
@@ -46,8 +46,8 @@ def ask_for_department(message):
 def save_department(message):
     department_map = {
         "Договорной отдел": "contract",
-        "Отдел распределения": "distribution",
-        "Рабочий отдел": "work",
+        "Руководитель проекта": "project_manager",
+        "Бригадир": "work",
         "Директор": "director"
     }
 
@@ -66,8 +66,8 @@ def save_department(message):
 def get_keyboard_by_department(department):
     if department == "contract":
         return get_contract_keyboard()
-    elif department == "distribution":
-        return get_distribution_keyboard()
+    elif department == "project_manager":
+        return get_project_manager_keyboard()
     elif department == "work":
         return get_work_keyboard()
     elif department == "director":
@@ -75,10 +75,8 @@ def get_keyboard_by_department(department):
     else:
         return types.ReplyKeyboardMarkup(resize_keyboard=True)
 
-
-
 # договорной отдел
-@bot.message_handler(func=lambda message: message.text.lower() == "добавить объект")
+@bot.message_handler(func=lambda message: message.text.lower() == "1.добавить объект")
 def add_object(message):
     user = message.from_user
     model_user = TelegramUser.objects.get(user_id=user.id)
@@ -99,7 +97,7 @@ def save_object(message):
         new_object.save()
         bot.send_message(message.chat.id, f"Объект '{new_object.name}' успешно добавлен", reply_markup=get_contract_keyboard())
 
-@bot.message_handler(func=lambda message: message.text.lower() == "добавить конструкцию")
+@bot.message_handler(func=lambda message: message.text.lower() == "2.добавить конструкцию")
 def add_construction(message):
     bot.send_message(message.chat.id, "Выберите объект, к которому нужно добавить конструкцию:", reply_markup=get_objects_keyboard())
     bot.register_next_step_handler(message, get_object_for_construction)
@@ -152,7 +150,7 @@ def save_construction_area(message, selected_object, construction_name):
         bot.send_message(message.chat.id, "Пожалуйста, введите корректное значение площади в квадратных метрах:", reply_markup=get_back_keyboard())
         bot.register_next_step_handler(message, save_construction_area, selected_object, construction_name)
 
-@bot.message_handler(func=lambda message: message.text.lower() == "добавить этап")
+@bot.message_handler(func=lambda message: message.text.lower() == "3.добавить этап")
 def add_stage(message):
     bot.send_message(message.chat.id, "Выберите объект, к которому нужно добавить этап:", reply_markup=get_objects_keyboard())
     bot.register_next_step_handler(message, select_object_for_stage)
@@ -165,14 +163,14 @@ def select_object_for_stage(message):
     try:
         selected_object = Object.objects.get(name=message.text)
         constructions = Construction.objects.filter(object=selected_object)
-        
+        bot.send_message(message.chat.id, f"Выбран объект: <b>{selected_object.name}</b>. Выберите конструкцию:", reply_markup=get_constructions_keyboard(selected_object.name), parse_mode="HTML")
+
         if constructions.exists():
             constructions_message = "<b>Существующие конструкции:</b>\n"
             for constr in constructions:
                 constructions_message += f"  - <b>{constr.name}</b> (площадь: {constr.area} m²)\n"
             bot.send_message(message.chat.id, constructions_message, parse_mode="HTML")
         
-        bot.send_message(message.chat.id, f"Выбран объект: <b>{selected_object.name}</b>. Выберите конструкцию:", reply_markup=get_constructions_keyboard(selected_object.name), parse_mode="HTML")
         bot.register_next_step_handler(message, select_construction_for_stage, selected_object)
     except Object.DoesNotExist:
         bot.send_message(message.chat.id, "Объект не найден. Введите корректное название объекта или нажмите 'назад'.", reply_markup=get_back_keyboard())
@@ -228,49 +226,49 @@ def save_stage_volume(message, selected_construction, stage_name, max_volume):
         bot.send_message(message.chat.id, "Пожалуйста, введите корректное значение объема в квадратных метрах:", reply_markup=get_back_keyboard())
         bot.register_next_step_handler(message, save_stage_volume, selected_construction, stage_name, max_volume)
 
-@bot.message_handler(func=lambda message: message.text.lower() == "назначить ответственного")
+@bot.message_handler(func=lambda message: message.text.lower() == "4.назначить руководителя проекта")
 def assign_responsible(message):
     bot.send_message(message.chat.id, "Выберите объект:", reply_markup=get_objects_keyboard_with_back())
     bot.register_next_step_handler(message, select_object_for_responsible)
 
 def select_object_for_responsible(message):
     if message.text.lower() == "назад":
-        bot.send_message(message.chat.id, "Назначение ответственного отменено.", reply_markup=get_contract_keyboard())
+        bot.send_message(message.chat.id, "Назначение руководителя отменено.", reply_markup=get_contract_keyboard())
         return
 
     try:
         selected_object = Object.objects.get(name=message.text)
-        distribution_users = TelegramUser.objects.filter(department='distribution')
+        project_manager_users = TelegramUser.objects.filter(department='project_manager')
 
-        if distribution_users.exists():
+        if project_manager_users.exists():
             keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-            for user in distribution_users:
+            for user in project_manager_users:
                 keyboard.add(types.KeyboardButton(user.first_name))
             keyboard.add(types.KeyboardButton("Назад"))
 
-            bot.send_message(message.chat.id, "Выберите ответственного:", reply_markup=keyboard)
+            bot.send_message(message.chat.id, "Выберите руководителя:", reply_markup=keyboard)
             bot.register_next_step_handler(message, save_responsible, selected_object)
         else:
-            bot.send_message(message.chat.id, "Нет пользователей в отделе распределения.", reply_markup=get_contract_keyboard())
+            bot.send_message(message.chat.id, "Нет пользователей в отделе руководителей проекта.", reply_markup=get_contract_keyboard())
     except Object.DoesNotExist:
         bot.send_message(message.chat.id, "Объект не найден. Введите корректное название объекта или нажмите 'назад'.", reply_markup=get_back_keyboard())
         bot.register_next_step_handler(message, select_object_for_responsible)
 
 def save_responsible(message, selected_object):
     if message.text.lower() == "назад":
-        bot.send_message(message.chat.id, "Назначение ответственного отменено.", reply_markup=get_contract_keyboard())
+        bot.send_message(message.chat.id, "Назначение руководителя отменено.", reply_markup=get_contract_keyboard())
         return
 
     try:
-        responsible_user = TelegramUser.objects.get(first_name=message.text, department='distribution')
+        responsible_user = TelegramUser.objects.get(first_name=message.text, department='project_manager')
         selected_object.responsible_person = responsible_user
         selected_object.save()
-        bot.send_message(message.chat.id, f"Пользователь {responsible_user.first_name} назначен ответственным за объект '{selected_object.name}'.", reply_markup=get_contract_keyboard())
+        bot.send_message(message.chat.id, f"Пользователь {responsible_user.first_name} назначен руководителем объекта '{selected_object.name}'.", reply_markup=get_contract_keyboard())
     except TelegramUser.DoesNotExist:
-        bot.send_message(message.chat.id, "Пользователь не найден или не принадлежит к отделу распределения. Введите корректное имя пользователя или нажмите 'назад'.", reply_markup=get_back_keyboard())
+        bot.send_message(message.chat.id, "Пользователь не найден или не принадлежит к отделу руководителей. Введите корректное имя пользователя или нажмите 'назад'.", reply_markup=get_back_keyboard())
         bot.register_next_step_handler(message, save_responsible, selected_object)
 
-@bot.message_handler(func=lambda message: message.text.lower() == "отчет")
+@bot.message_handler(func=lambda message: message.text.lower() == "5.отчет")
 def send_report(message):
     user = message.from_user
     model_user = TelegramUser.objects.get(user_id=user.id)
@@ -282,8 +280,8 @@ def send_report(message):
     
     report_message = "<b>Ваши объекты:</b>\n\n" 
     for i, obj in enumerate(objects, 1):
-        responsible = obj.responsible_person.first_name if obj.responsible_person else "Нет ответственного"
-        report_message += f"<b>{i}. Объект: {obj.name}</b> (Ответственный: <b>{responsible}</b>)\n"
+        responsible = obj.responsible_person.first_name if obj.responsible_person else "Нет руководителя"
+        report_message += f"<b>{i}. Объект: {obj.name}</b> (Руководитель: <b>{responsible}</b>)\n"
         constructions = Construction.objects.filter(object=obj)
         if constructions:
             report_message += "  <b>Конструкции:</b>\n"
@@ -291,23 +289,20 @@ def send_report(message):
                 report_message += f"    - <b>{constr.name}</b> (площадь: {constr.area} м²)\n"
                 stages = Stage.objects.filter(construction=constr)
                 if stages:
-                    report_message += "      <b>Этапы:</b>\n"
                     for stage in stages:
-                        report_message += f"        * <b>{stage.name}</b> (объем: {stage.volume} м²)\n"
+                        report_message += f"        ♦ <b>{stage.name}</b> (объем: {stage.volume} м²)\n"
         else:
             report_message += "  <b>Нет конструкций.</b>\n"
         report_message += "\n"
 
     bot.send_message(message.chat.id, report_message, parse_mode="HTML", reply_markup=get_contract_keyboard())
 
-
-# Отдел распределения
+# Руководитель проекта
 user_sessions = {}
-
-@bot.message_handler(func=lambda message: message.text.lower() == "назначить рабочего")
+@bot.message_handler(func=lambda message: message.text.lower() == "1.назначить бригадира")
 def assign_worker(message):
     user = TelegramUser.objects.get(user_id=message.from_user.id)
-    if user.department != 'distribution':
+    if user.department != 'project_manager':
         bot.send_message(message.chat.id, "У вас нет доступа к этой функции.")
         return
 
@@ -315,7 +310,7 @@ def assign_worker(message):
 
     assigned_objects = Object.objects.filter(responsible_person=user)
     if assigned_objects.exists():
-        bot.send_message(message.chat.id, "Выберите объект:", reply_markup=get_objects_keyboard_for_distribution(user))
+        bot.send_message(message.chat.id, "Выберите объект:", reply_markup=get_objects_keyboard_for_project_manager(user))
         bot.register_next_step_handler(message, select_object_for_worker_assignment)
     else:
         bot.send_message(message.chat.id, "Вам не назначен ни один объект.")
@@ -324,7 +319,7 @@ def assign_worker(message):
 def select_object_for_worker_assignment(message):
     user = TelegramUser.objects.get(user_id=message.from_user.id)
     if message.text.lower() == "назад":
-        bot.send_message(message.chat.id, "Назначение рабочего отменено.", reply_markup=get_distribution_keyboard())
+        bot.send_message(message.chat.id, "Назначение бригадира отменено.", reply_markup=get_project_manager_keyboard())
         user_sessions.pop(message.chat.id, None)
         return
 
@@ -339,7 +334,7 @@ def select_object_for_worker_assignment(message):
 
 def select_construction_for_worker_assignment(message, selected_object):
     if message.text.lower() == "назад":
-        bot.send_message(message.chat.id, "Назначение рабочего отменено.", reply_markup=get_distribution_keyboard())
+        bot.send_message(message.chat.id, "Назначение бригадира отменено.", reply_markup=get_project_manager_keyboard())
         user_sessions.pop(message.chat.id, None)
         return
 
@@ -359,7 +354,7 @@ def select_construction_for_worker_assignment(message, selected_object):
 
 def select_stage_for_worker_assignment(message, selected_construction):
     if message.text.lower() == "назад":
-        bot.send_message(message.chat.id, "Назначение рабочего отменено.", reply_markup=get_distribution_keyboard())
+        bot.send_message(message.chat.id, "Назначение бригадира отменено.", reply_markup=get_project_manager_keyboard())
         user_sessions.pop(message.chat.id, None)
         return
 
@@ -368,16 +363,16 @@ def select_stage_for_worker_assignment(message, selected_construction):
         user_sessions[message.chat.id]['selected_stage'] = selected_stage
         workers = TelegramUser.objects.filter(department='work')
         if not workers.exists():
-            bot.send_message(message.chat.id, "Нет рабочих для назначения.", reply_markup=get_distribution_keyboard())
+            bot.send_message(message.chat.id, "Нет бригадира для назначения.", reply_markup=get_project_manager_keyboard())
             user_sessions.pop(message.chat.id, None)
             return
         if selected_stage.workers_assigned.exists():
             assigned_workers = selected_stage.workers_assigned.all()
             worker_names = ", ".join([worker.get_name() for worker in assigned_workers])
-            bot.send_message(message.chat.id, f"На этапе уже назначены рабочие: {worker_names}. Хотите перезаписать?", reply_markup=get_confirmation_keyboard())
+            bot.send_message(message.chat.id, f"На этапе уже назначен бригадир: {worker_names}. Хотите перезаписать?", reply_markup=get_confirmation_keyboard())
             bot.register_next_step_handler(message, confirm_overwrite_assignment)
         else:
-            bot.send_message(message.chat.id, "Выберите рабочего для назначения на этап:", reply_markup=get_workers_keyboard([]))
+            bot.send_message(message.chat.id, "Выберите бригадира для назначения на этап:", reply_markup=get_workers_keyboard([]))
             bot.register_next_step_handler(message, select_worker_for_stage, selected_stage)
     except Stage.DoesNotExist:
         bot.send_message(message.chat.id, "Этап не найден. Введите корректное название этапа или нажмите 'назад'.", reply_markup=get_back_keyboard())
@@ -385,7 +380,7 @@ def select_stage_for_worker_assignment(message, selected_construction):
 
 def confirm_overwrite_assignment(message):
     if message.text.lower() == "да":
-        bot.send_message(message.chat.id, "Выберите рабочего для назначения на этап:", reply_markup=get_workers_keyboard([]))
+        bot.send_message(message.chat.id, "Выберите бригадира для назначения на этап:", reply_markup=get_workers_keyboard([]))
         bot.register_next_step_handler(message, select_worker_for_stage, user_sessions[message.chat.id]['selected_stage'])
     elif message.text.lower() == "нет":
         bot.send_message(message.chat.id, "Выберите этап:", reply_markup=get_stages_keyboard(user_sessions[message.chat.id]['selected_construction']))
@@ -396,14 +391,14 @@ def confirm_overwrite_assignment(message):
 
 def select_worker_for_stage(message, selected_stage):
     if message.text.lower() == "назад":
-        bot.send_message(message.chat.id, "Назначение рабочего отменено.", reply_markup=get_distribution_keyboard())
+        bot.send_message(message.chat.id, "Назначение бригадира отменено.", reply_markup=get_project_manager_keyboard())
         user_sessions.pop(message.chat.id, None)
         return
 
     if message.text.lower() == "подтвердить":
         selected_worker = user_sessions[message.chat.id]['selected_worker']
         if not selected_worker:
-            bot.send_message(message.chat.id, "Вы не выбрали ни одного рабочего. Пожалуйста, выберите рабочего и нажмите 'Подтвердить'.", reply_markup=get_workers_keyboard([]))
+            bot.send_message(message.chat.id, "Вы не выбрали ни одного бригадира. Пожалуйста, выберите бригадира и нажмите 'Подтвердить'.", reply_markup=get_workers_keyboard([]))
             bot.register_next_step_handler(message, select_worker_for_stage, selected_stage)
         else:
             bot.send_message(message.chat.id, "Введите количество рабочих:", reply_markup=get_back_keyboard())
@@ -414,15 +409,15 @@ def select_worker_for_stage(message, selected_stage):
     try:
         worker = TelegramUser.objects.get(first_name=worker_name, department='work')
         user_sessions[message.chat.id]['selected_worker'] = worker
-        bot.send_message(message.chat.id, f"На этап будет назначен рабочий: {worker.get_name()}. Нажмите 'Подтвердить' для сохранения или выберите другого рабочего.", reply_markup=get_workers_confirmation_keyboard())
+        bot.send_message(message.chat.id, f"На этап будет назначен бригадир: {worker.get_name()}. Нажмите 'Подтвердить' для сохранения или выберите другого бригадира.", reply_markup=get_workers_confirmation_keyboard())
         bot.register_next_step_handler(message, select_worker_for_stage, selected_stage)
     except TelegramUser.DoesNotExist:
-        bot.send_message(message.chat.id, "Рабочий не найден. Попробуйте снова или нажмите 'назад'.", reply_markup=get_back_keyboard())
+        bot.send_message(message.chat.id, "Бригадира не найден. Попробуйте снова или нажмите 'назад'.", reply_markup=get_back_keyboard())
         bot.register_next_step_handler(message, select_worker_for_stage, selected_stage)
 
 def enter_number_of_workers(message, selected_stage):
     if message.text.lower() == "назад":
-        bot.send_message(message.chat.id, "Назначение рабочего отменено.", reply_markup=get_distribution_keyboard())
+        bot.send_message(message.chat.id, "Назначение бригадира отменено.", reply_markup=get_project_manager_keyboard())
         user_sessions.pop(message.chat.id, None)
         return
 
@@ -437,7 +432,7 @@ def enter_number_of_workers(message, selected_stage):
 
 def enter_start_date(message, selected_stage):
     if message.text.lower() == "назад":
-        bot.send_message(message.chat.id, "Назначение рабочего отменено.", reply_markup=get_distribution_keyboard())
+        bot.send_message(message.chat.id, "Назначение бригадира отменено.", reply_markup=get_project_manager_keyboard())
         user_sessions.pop(message.chat.id, None)
         return
 
@@ -459,7 +454,7 @@ def enter_start_date(message, selected_stage):
 
 def enter_end_date(message, selected_stage):
     if message.text.lower() == "назад":
-        bot.send_message(message.chat.id, "Назначение рабочего отменено.", reply_markup=get_distribution_keyboard())
+        bot.send_message(message.chat.id, "Назначение бригадира отменено.", reply_markup=get_project_manager_keyboard())
         user_sessions.pop(message.chat.id, None)
         return
 
@@ -491,20 +486,20 @@ def finalize_worker_assignment(message, selected_stage):
     selected_stage.end_date = end_date
     selected_stage.save()
 
-    bot.send_message(message.chat.id, f"Рабочий {worker.get_name()} назначен на этап '{selected_stage.name}' конструкции '{selected_stage.construction.name}' объекта '{selected_stage.construction.object.name}'.", reply_markup=get_distribution_keyboard())
+    bot.send_message(message.chat.id, f"Бригадир {worker.get_name()} назначен на этап '{selected_stage.name}' конструкции '{selected_stage.construction.name}' объекта '{selected_stage.construction.object.name}'.", reply_markup=get_project_manager_keyboard())
     user_sessions.pop(message.chat.id, None)
 
-@bot.message_handler(func=lambda message: message.text.lower() == "список назначений")
+@bot.message_handler(func=lambda message: message.text.lower() == "2.список назначений")
 def show_assignments_list(message):
     user = TelegramUser.objects.get(user_id=message.from_user.id)
-    if user.department != 'distribution':
+    if user.department != 'project_manager':
         bot.send_message(message.chat.id, "У вас нет доступа к этой функции.")
         return
 
     assigned_objects = Object.objects.filter(responsible_person=user)
 
     if not assigned_objects.exists():
-        bot.send_message(message.chat.id, "У вас нет назначенных объектов.", reply_markup=get_distribution_keyboard())
+        bot.send_message(message.chat.id, "У вас нет назначенных объектов.", reply_markup=get_project_manager_keyboard())
         return
 
     assignments_message = "<b>Список назначений:</b>\n\n"
@@ -520,34 +515,34 @@ def show_assignments_list(message):
                         worker_count = stage.number_of_workers
                         start_date = stage.start_date.strftime("%d.%m.%Y") if stage.start_date else "не установлена"
                         end_date = stage.end_date.strftime("%d.%m.%Y") if stage.end_date else "не установлена"
-                        assignments_message += f"    - <b>Этап: {stage.name}</b> (Рабочих: {worker_count}, Дата начала: {start_date}, Дата окончания: {end_date})\n"
+                        assignments_message += f"     <b> ♦ {stage.name}</b> (Рабочих: {worker_count},\n    Дата начала: {start_date},\n    Дата окончания: {end_date})\n"
                 else:
                     assignments_message += "    - <b>Нет этапов.</b>\n"
         else:
             assignments_message += "  <b>Нет конструкций.</b>\n"
         assignments_message += "\n"
 
-    bot.send_message(message.chat.id, assignments_message, parse_mode="HTML", reply_markup=get_distribution_keyboard())
+    bot.send_message(message.chat.id, assignments_message, parse_mode="HTML", reply_markup=get_project_manager_keyboard())
 
-@bot.message_handler(func=lambda message: message.text.lower() == "гпр")
+@bot.message_handler(func=lambda message: message.text.lower() == "3.гпр")
 def generate_report(message):
     user = TelegramUser.objects.get(user_id=message.from_user.id)
-    if user.department != 'distribution':
+    if user.department != 'project_manager':
         bot.send_message(message.chat.id, "У вас нет доступа к этой функции.")
         return
 
     assigned_objects = Object.objects.filter(responsible_person=user)
 
     if assigned_objects.exists():
-        bot.send_message(message.chat.id, "Выберите объект:", reply_markup=get_objects_keyboard_for_distribution(user))
+        bot.send_message(message.chat.id, "Выберите объект:", reply_markup=get_objects_keyboard_for_project_manager(user))
         bot.register_next_step_handler(message, select_object_for_report)
     else:
-        bot.send_message(message.chat.id, "Вам не назначен ни один объект.", reply_markup=get_distribution_keyboard())
+        bot.send_message(message.chat.id, "Вам не назначен ни один объект.", reply_markup=get_project_manager_keyboard())
 
 def select_object_for_report(message):
     user = TelegramUser.objects.get(user_id=message.from_user.id)
     if message.text.lower() == "назад":
-        bot.send_message(message.chat.id, "Генерация отчета отменена.", reply_markup=get_distribution_keyboard())
+        bot.send_message(message.chat.id, "Генерация отчета отменена.", reply_markup=get_project_manager_keyboard())
         return
 
     try:
@@ -560,7 +555,7 @@ def select_object_for_report(message):
 
 def select_construction_for_report(message, selected_object):
     if message.text.lower() == "назад":
-        bot.send_message(message.chat.id, "Генерация отчета отменена.", reply_markup=get_distribution_keyboard())
+        bot.send_message(message.chat.id, "Генерация отчета отменена.", reply_markup=get_project_manager_keyboard())
         return
 
     try:
@@ -573,7 +568,7 @@ def select_construction_for_report(message, selected_object):
 
 def select_stage_for_report(message, selected_construction):
     if message.text.lower() == "назад":
-        bot.send_message(message.chat.id, "Генерация отчета отменена.", reply_markup=get_distribution_keyboard())
+        bot.send_message(message.chat.id, "Генерация отчета отменена.", reply_markup=get_project_manager_keyboard())
         return
 
     try:
@@ -585,7 +580,7 @@ def select_stage_for_report(message, selected_construction):
             report_message = (
                 f"<b>Объект:</b> {selected_construction.object.name}\n"
                 f"<b>Конструкция:</b> {selected_construction.name}\n"
-                f"<b>Этап:</b> {selected_stage.name}\n"
+                f"<b>♦</b> {selected_stage.name}\n"
                 f"<b>Объем выполненных работ:</b> {total_completed_volume} м²\n"
                 f"<b>Статус:</b> Этап успешно выполнен."
             )
@@ -593,35 +588,24 @@ def select_stage_for_report(message, selected_construction):
             report_message = (
                 f"<b>Объект:</b> {selected_construction.object.name}\n"
                 f"<b>Конструкция:</b> {selected_construction.name}\n"
-                f"<b>Этап:</b> {selected_stage.name}\n"
+                f"<b>♦</b> {selected_stage.name}\n"
                 f"<b>Объем выполненных работ:</b> {total_completed_volume} м²\n"
                 f"<b>Оставшийся объем:</b> {remaining_volume} м²"
             )
 
-        bot.send_message(message.chat.id, report_message, parse_mode="HTML", reply_markup=get_distribution_keyboard())
+        bot.send_message(message.chat.id, report_message, parse_mode="HTML", reply_markup=get_project_manager_keyboard())
     except Stage.DoesNotExist:
         bot.send_message(message.chat.id, "Этап не найден. Введите корректное название этапа или нажмите 'назад'.", reply_markup=get_back_keyboard())
         bot.register_next_step_handler(message, select_stage_for_report, selected_construction)
 
-
-
-
-
-
-
-
-
-
-
-
-# Рабочий отдел 
-@bot.message_handler(func=lambda message: message.text == "Начать работу")
+# Бригадир 
+@bot.message_handler(func=lambda message: message.text == "1.Начать работу")
 def start_work(message):
     user = message.from_user
     try:
         model_user = TelegramUser.objects.get(user_id=user.id, department='work')
     except TelegramUser.DoesNotExist:
-        bot.send_message(message.chat.id, "Вы не зарегистрированы в рабочем отделе.")
+        bot.send_message(message.chat.id, "Вы не являетесь бригадиром.")
         return
 
     # Получаем этапы, назначенные пользователю, отсортированные по дате начала и неполные
@@ -680,12 +664,12 @@ def handle_stage_selection(message):
         report_message = (
             f"<b>Объект:</b> {obj.name}\n"
             f"<b>Конструкция:</b> {construction.name}\n"
-            f"<b>Этап:</b> {stage.name}\n"
+            f"<b>♦</b> {stage.name}\n"
             f"<b>Дата начала:</b> {start_date.strftime('%d.%m.%Y') if start_date else 'не установлена'}\n"
             f"<b>Дата окончания:</b> {end_date.strftime('%d.%m.%Y')}\n"
             f"<b>До начала осталось:</b> {days_until_start} дней\n"
             f"<b>Выполнено:</b> {total_completed_volume} м²\n"
-            f"<b>Объем этапа:</b> {stage.volume} м²\n"
+            f"<b>Объем ♦ :</b> {stage.volume} м²\n"
             f"<b>Количество рабочих:</b> {stage.number_of_workers}\n"
             f"<b>Нужно выполнять в день:</b> {daily_volume_needed:.1f} м²\n"
             f"<b>Ежедневные отчеты:</b>\n{daily_report_messages}"
@@ -696,12 +680,12 @@ def handle_stage_selection(message):
         report_message = (
             f"<b>Объект:</b> {obj.name}\n"
             f"<b>Конструкция:</b> {construction.name}\n"
-            f"<b>Этап:</b> {stage.name}\n"
+            f"<b>♦</b> {stage.name}\n"
             f"<b>Дата начала:</b> {start_date.strftime('%d.%m.%Y') if start_date else 'не установлена'}\n"
             f"<b>Дата окончания:</б> {end_date.strftime('%d.%м.%Y')}\n"
             f"<b>Осталось:</б> {days_left} дней\n"
             f"<b>Выполнено:</б> {total_completed_volume} м²\n"
-            f"<b>Объем этапа:</б> {stage.volume} м²\n"
+            f"<b>Объем ♦ :</б> {stage.volume} м²\n"
             f"<b>Количество рабочих:</б> {stage.number_of_workers}\n"
             f"<b>Нужно выполнять в день:</б> {daily_volume_needed:.1f} м²\n"
             f"<b>Ежедневные отчеты:</б>\n{daily_report_messages}"
@@ -710,13 +694,13 @@ def handle_stage_selection(message):
     # Отправка сообщения пользователю
     bot.send_message(message.chat.id, report_message, parse_mode="HTML", reply_markup=get_work_keyboard())
 
-@bot.message_handler(func=lambda message: message.text == "Внести данные")
+@bot.message_handler(func=lambda message: message.text == "2.Внести данные")
 def enter_data(message):
     user = message.from_user
     try:
         model_user = TelegramUser.objects.get(user_id=user.id, department='work')
     except TelegramUser.DoesNotExist:
-        bot.send_message(message.chat.id, "Вы не зарегистрированы в рабочем отделе.")
+        bot.send_message(message.chat.id, "Вы не являетесь бригадиром.")
         return
     
     # Получаем объекты с незавершенными этапами, назначенными пользователю
@@ -872,7 +856,7 @@ def get_completed_volume(message):
                 message_text = (
                     f"Объект: {selected_stage.construction.object.name}\n"
                     f"Конструкция: {selected_stage.construction.name}\n"
-                    f"Этап: {selected_stage.name}\n"
+                    f"♦ {selected_stage.name}\n"
                     f"Просрочки:\n{underperformance_info}"
                 )
                 bot.send_message(responsible_person.user_id, message_text)
@@ -885,8 +869,7 @@ def get_completed_volume(message):
         bot.register_next_step_handler(message, get_completed_volume)
         return
 
-
-@bot.message_handler(func=lambda message: message.text == "Гпp")
+@bot.message_handler(func=lambda message: message.text == "3.Гпp")
 def gpr_menu(message):
     user = message.from_user
     try:
@@ -901,7 +884,7 @@ def gpr_menu(message):
 def go_back_to_work_menu(message):
     bot.send_message(message.chat.id, "Вы вернулись назад.", reply_markup=get_work_keyboard())
 
-@bot.message_handler(func=lambda message: message.text == "Сколько осталось")
+@bot.message_handler(func=lambda message: message.text == "1.Сколько осталось")
 def remaining_work(message):
     user = message.from_user
     try:
@@ -984,7 +967,7 @@ def show_remaining_work(message, selected_object, stages, selected_construction,
     remaining_volume = selected_stage.volume - sum(work.volume for work in selected_stage.completed_works.all())
     bot.send_message(message.chat.id, f"Оставшийся объем для этапа '{selected_stage.name}': {remaining_volume} м²", reply_markup=get_gpr_keyboard())
 
-@bot.message_handler(func=lambda message: message.text == "Сколько выполнено")
+@bot.message_handler(func=lambda message: message.text == "2.Сколько выполнено")
 def completed_work(message):
     user = message.from_user
     try:
@@ -1067,7 +1050,7 @@ def show_completed_work(message, selected_object, stages, selected_construction,
     total_completed_volume = sum(work.volume for work in selected_stage.completed_works.all())
     bot.send_message(message.chat.id, f"Объем выполненных работ для этапа '{selected_stage.name}': {total_completed_volume} м²", reply_markup=get_gpr_keyboard())
 
-@bot.message_handler(func=lambda message: message.text == "Ежедневные отчеты")
+@bot.message_handler(func=lambda message: message.text == "3.Ежедневные отчеты")
 def daily_reports(message):
     user = message.from_user
     try:
@@ -1155,16 +1138,6 @@ def show_daily_reports(message, selected_object, stages, selected_construction, 
     report_messages = "\n".join([f"{report.date.strftime('%d.%m.%Y')}: Выполнено: {report.completed_volume} м², Рабочих: {report.number_of_workers}" for report in daily_reports])
     bot.send_message(message.chat.id, f"Ежедневные отчеты для этапа '{selected_stage.name}':\n{report_messages}", reply_markup=get_gpr_keyboard())
 
-
-
-
-
-
-
-
-
-
-
 # Директор
 @bot.message_handler(func=lambda message: message.text == "Просрочки")
 def director_overdue_stages(message):
@@ -1221,8 +1194,8 @@ def show_stage_info(message, stages):
     message_text = (
         f"<b>Объект:</b> {selected_stage.construction.object.name}\n"
         f"<b>Конструкция:</b> {selected_stage.construction.name}\n"
-        f"<b>Этап:</b> {selected_stage.name}\n"
-        f"<b>Ответственный:</b> {selected_stage.construction.object.responsible_person.get_name()}\n"
+        f"<b>♦</b> {selected_stage.name}\n"
+        f"<b>Руководитель проекта:</b> {selected_stage.construction.object.responsible_person.get_name()}\n"
         f"<b>Количество рабочих:</b> {selected_stage.number_of_workers}\n"
         f"<b>Нужно выполнять в день:</b> {daily_volume_needed:.1f} м²\n"
         f"<b>Ежедневные отчеты:</b>\n{report_info}\n\n"
@@ -1230,8 +1203,6 @@ def show_stage_info(message, stages):
     )
 
     bot.send_message(message.chat.id, message_text, parse_mode="HTML", reply_markup=get_director_keyboard())
-
-
 
 def RunBot():
     try:
@@ -1248,4 +1219,3 @@ def RunBot():
     
     finally:
         logger.info("Завершение работы бота!")
-
