@@ -491,9 +491,6 @@ def finalize_worker_assignment(message, selected_stage):
     user_sessions.pop(message.chat.id, None)
 
 
-
-
-
 @bot.message_handler(func=lambda message: message.text.lower() == "2.список назначений")
 def show_assignments_list(message):
     user = TelegramUser.objects.get(user_id=message.from_user.id)
@@ -934,7 +931,6 @@ def get_completed_volume(message):
         bot.register_next_step_handler(message, get_completed_volume)
         return
 
-
 @bot.message_handler(func=lambda message: message.text == "3.Гпp")
 def gpr_menu(message):
     user = message.from_user
@@ -1276,7 +1272,8 @@ def show_stage_info(message, stages_for_object):
     reports = selected_stage.daily_reports.all()
 
     report_info = "\n".join([f"{report.date.strftime('%d.%m.%Y')}: Рабочих: {report.number_of_workers}, выполнено объема: {report.completed_volume} м²" for report in reports])
-    underperformance_info = "\n".join([f"{up.date.strftime('%d.%m.%Y')}: Рабочих: {up.deficit_workers or '-'}, выполнено объема: {up.deficit_volume or '-'} м²" for up in underperformances])
+    underperformance_info = "\n".join([f"{up.date.strftime('%d.%m.%Y')}: Не было рабочих: {up.deficit_workers or '-'}, не выполнено объема: {up.deficit_volume:.1f} м²" if up.deficit_volume is not None else f"{up.date.strftime('%d.%m.%Y')}: Не было рабочих: {up.deficit_workers or '-'}, не выполнено объема: -" for up in underperformances])
+
 
     total_days = (selected_stage.end_date - selected_stage.start_date).days or 1
     daily_volume_needed = selected_stage.volume / total_days
