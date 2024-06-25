@@ -299,6 +299,7 @@ def send_report(message):
 
 # Руководитель проекта
 user_sessions = {}
+
 @bot.message_handler(func=lambda message: message.text.lower() == "1.назначить бригадира")
 def assign_worker(message):
     user = TelegramUser.objects.get(user_id=message.from_user.id)
@@ -326,7 +327,7 @@ def select_object_for_worker_assignment(message):
     try:
         selected_object = Object.objects.get(name=message.text, responsible_person=user)
         user_sessions[message.chat.id]['selected_object'] = selected_object
-        bot.send_message(message.chat.id, "Выберите конструкцию:", reply_markup=get_constructions_keyboard(selected_object.name))
+        bot.send_message(message.chat.id, "Выберите конструкцию:", reply_markup=get_constructions_keyboard(selected_object))
         bot.register_next_step_handler(message, select_construction_for_worker_assignment, selected_object)
     except Object.DoesNotExist:
         bot.send_message(message.chat.id, "Объект не найден или у вас нет прав доступа к этому объекту. Введите корректное название объекта или нажмите 'назад'.", reply_markup=get_back_keyboard())
@@ -341,25 +342,25 @@ def select_construction_for_worker_assignment(message, selected_object):
     try:
         selected_construction = Construction.objects.get(object=selected_object, name=message.text)
         user_sessions[message.chat.id]['selected_construction'] = selected_construction
-        stages = Stage.objects.filter(construction=selected_construction)
+        stages = Stage.objects.filter(construction=selected_construction, completed=False)
         if not stages.exists():
-            bot.send_message(message.chat.id, "В этой конструкции нет этапов. Выберите другую конструкцию:", reply_markup=get_constructions_keyboard(selected_object.name))
+            bot.send_message(message.chat.id, "В этой конструкции нет незавершенных этапов. Выберите другую конструкцию:", reply_markup=get_constructions_keyboard(selected_object))
             bot.register_next_step_handler(message, select_construction_for_worker_assignment, selected_object)
         else:
             bot.send_message(message.chat.id, "Выберите этап:", reply_markup=get_stages_keyboard(selected_construction))
-            bot.register_next_step_handler(message, select_stage_for_worker_assignment, selected_construction)
+            bot.register_next_step_handler(message, select_stage_for_worker_assignment, selected_construction, stages)
     except Construction.DoesNotExist:
         bot.send_message(message.chat.id, "Конструкция не найдена. Введите корректное название конструкции или нажмите 'назад'.", reply_markup=get_back_keyboard())
         bot.register_next_step_handler(message, select_construction_for_worker_assignment, selected_object)
 
-def select_stage_for_worker_assignment(message, selected_construction):
+def select_stage_for_worker_assignment(message, selected_construction, stages):
     if message.text.lower() == "назад":
         bot.send_message(message.chat.id, "Назначение бригадира отменено.", reply_markup=get_project_manager_keyboard())
         user_sessions.pop(message.chat.id, None)
         return
 
     try:
-        selected_stage = Stage.objects.get(construction=selected_construction, name=message.text)
+        selected_stage = next(stage for stage in stages if stage.name == message.text)
         user_sessions[message.chat.id]['selected_stage'] = selected_stage
         workers = TelegramUser.objects.filter(department='work')
         if not workers.exists():
@@ -374,9 +375,9 @@ def select_stage_for_worker_assignment(message, selected_construction):
         else:
             bot.send_message(message.chat.id, "Выберите бригадира для назначения на этап:", reply_markup=get_workers_keyboard([]))
             bot.register_next_step_handler(message, select_worker_for_stage, selected_stage)
-    except Stage.DoesNotExist:
+    except StopIteration:
         bot.send_message(message.chat.id, "Этап не найден. Введите корректное название этапа или нажмите 'назад'.", reply_markup=get_back_keyboard())
-        bot.register_next_step_handler(message, select_stage_for_worker_assignment, selected_construction)
+        bot.register_next_step_handler(message, select_stage_for_worker_assignment, selected_construction, stages)
 
 def confirm_overwrite_assignment(message):
     if message.text.lower() == "да":
@@ -384,7 +385,7 @@ def confirm_overwrite_assignment(message):
         bot.register_next_step_handler(message, select_worker_for_stage, user_sessions[message.chat.id]['selected_stage'])
     elif message.text.lower() == "нет":
         bot.send_message(message.chat.id, "Выберите этап:", reply_markup=get_stages_keyboard(user_sessions[message.chat.id]['selected_construction']))
-        bot.register_next_step_handler(message, select_stage_for_worker_assignment, user_sessions[message.chat.id]['selected_construction'])
+        bot.register_next_step_handler(message, select_stage_for_worker_assignment, user_sessions[message.chat.id]['selected_construction'], user_sessions[message.chat.id]['selected_construction'].stages.filter(completed=False))
     else:
         bot.send_message(message.chat.id, "Неверный ввод. Пожалуйста, выберите 'Да' или 'Нет'.", reply_markup=get_confirmation_keyboard())
         bot.register_next_step_handler(message, confirm_overwrite_assignment)
@@ -488,6 +489,10 @@ def finalize_worker_assignment(message, selected_stage):
 
     bot.send_message(message.chat.id, f"Бригадир {worker.get_name()} назначен на этап '{selected_stage.name}' конструкции '{selected_stage.construction.name}' объекта '{selected_stage.construction.object.name}'.", reply_markup=get_project_manager_keyboard())
     user_sessions.pop(message.chat.id, None)
+
+
+
+
 
 @bot.message_handler(func=lambda message: message.text.lower() == "2.список назначений")
 def show_assignments_list(message):
@@ -598,7 +603,6 @@ def select_stage_for_report(message, selected_construction):
         bot.send_message(message.chat.id, "Этап не найден. Введите корректное название этапа или нажмите 'назад'.", reply_markup=get_back_keyboard())
         bot.register_next_step_handler(message, select_stage_for_report, selected_construction)
 
-# Бригадир 
 @bot.message_handler(func=lambda message: message.text == "1.Начать работу")
 def start_work(message):
     user = message.from_user
@@ -611,6 +615,7 @@ def start_work(message):
     # Получаем этапы, назначенные пользователю, отсортированные по дате начала и неполные
     assigned_stages = model_user.assigned_stages.filter(
         start_date__isnull=False,
+        end_date__isnull=False,
         completed=False
     ).order_by('start_date')
 
@@ -618,77 +623,123 @@ def start_work(message):
         bot.send_message(message.chat.id, "У вас нет назначенных этапов.")
         return
 
-    # Создаем кнопки для этапов
+    # Получаем объекты, назначенные пользователю
+    assigned_objects = {stage.construction.object for stage in assigned_stages}
+
+    # Создаем кнопки для объектов
     reply_markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-    for stage in assigned_stages:
-        reply_markup.add(types.KeyboardButton(stage.name))
+    for obj in assigned_objects:
+        reply_markup.add(types.KeyboardButton(obj.name))
     reply_markup.add(types.KeyboardButton("Назад"))
 
     # Отправляем кнопки пользователю
-    bot.send_message(message.chat.id, "Выберите этап:", reply_markup=reply_markup)
-    bot.register_next_step_handler(message, handle_stage_selection)
+    bot.send_message(message.chat.id, "Выберите объект:", reply_markup=reply_markup)
+    bot.register_next_step_handler(message, select_object_for_work, assigned_stages)
 
-def handle_stage_selection(message):
+def select_object_for_work(message, assigned_stages):
     if message.text == "Назад":
         bot.send_message(message.chat.id, "Вы вернулись назад.", reply_markup=get_work_keyboard())
         return
 
-    stage_name = message.text
     try:
-        stage = Stage.objects.get(name=stage_name)
-    except Stage.DoesNotExist:
-        bot.send_message(message.chat.id, "Этап не найден.")
+        selected_object = Object.objects.get(name=message.text)
+    except Object.DoesNotExist:
+        bot.send_message(message.chat.id, "Объект не найден.")
         start_work(message)
         return
 
-    construction = stage.construction
+    constructions = {stage.construction for stage in assigned_stages if stage.construction.object == selected_object}
+
+    # Создаем кнопки для конструкций
+    reply_markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    for construction in constructions:
+        reply_markup.add(types.KeyboardButton(construction.name))
+    reply_markup.add(types.KeyboardButton("Назад"))
+
+    bot.send_message(message.chat.id, "Выберите конструкцию:", reply_markup=reply_markup)
+    bot.register_next_step_handler(message, select_construction_for_work, selected_object, assigned_stages)
+
+def select_construction_for_work(message, selected_object, assigned_stages):
+    if message.text == "Назад":
+        bot.send_message(message.chat.id, "Вы вернулись назад.", reply_markup=get_work_keyboard())
+        return
+
+    try:
+        selected_construction = Construction.objects.get(name=message.text, object=selected_object)
+    except Construction.DoesNotExist:
+        bot.send_message(message.chat.id, "Конструкция не найдена.")
+        select_object_for_work(message, assigned_stages)
+        return
+
+    stages = [stage for stage in assigned_stages if stage.construction == selected_construction]
+
+    # Создаем кнопки для этапов
+    reply_markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    for stage in stages:
+        reply_markup.add(types.KeyboardButton(stage.name))
+    reply_markup.add(types.KeyboardButton("Назад"))
+
+    bot.send_message(message.chat.id, "Выберите этап:", reply_markup=reply_markup)
+    bot.register_next_step_handler(message, handle_stage_selection, selected_object, selected_construction, stages)
+
+def handle_stage_selection(message, selected_object, assigned_stages, stages):
+    if message.text == "Назад":
+        bot.send_message(message.chat.id, "Вы вернулись назад.", reply_markup=get_work_keyboard())
+        return
+
+    try:
+        selected_stage = next(stage for stage in stages if stage.name == message.text)
+    except StopIteration:
+        bot.send_message(message.chat.id, "Этап не найден.")
+        select_construction_for_work(message, selected_object, assigned_stages)
+        return
+
+    construction = selected_stage.construction
     obj = construction.object
-    start_date = stage.start_date
-    end_date = stage.end_date
+    start_date = selected_stage.start_date
+    end_date = selected_stage.end_date
 
     # Текущая дата
     today = timezone.now().date()
 
     # Расчет выполненного объема работы
-    total_completed_volume = sum(work.volume for work in stage.completed_works.all())
+    total_completed_volume = sum(work.volume for work in selected_stage.completed_works.all())
 
     # Получаем ежедневные отчеты для этапа
-    daily_reports = stage.daily_reports.all()
+    daily_reports = selected_stage.daily_reports.all()
     daily_report_messages = "\n".join([f"{report.date.strftime('%d.%m.%Y')}: Выполнено: {report.completed_volume} м², Рабочих: {report.number_of_workers}" for report in daily_reports])
 
-    # Определяем, начался ли этап
     if today < start_date:
         days_until_start = (start_date - today).days
         total_days = (end_date - start_date).days
-        daily_volume_needed = stage.volume / total_days if total_days > 0 else 0
+        daily_volume_needed = selected_stage.volume / total_days if total_days > 0 else 0
         report_message = (
             f"<b>Объект:</b> {obj.name}\n"
             f"<b>Конструкция:</b> {construction.name}\n"
-            f"<b>♦</b> {stage.name}\n"
-            f"<b>Дата начала:</b> {start_date.strftime('%d.%m.%Y') if start_date else 'не установлена'}\n"
+            f"<b>Этап:</b> {selected_stage.name}\n"
+            f"<b>Дата начала:</b> {start_date.strftime('%d.%m.%Y')}\n"
             f"<b>Дата окончания:</b> {end_date.strftime('%d.%m.%Y')}\n"
             f"<b>До начала осталось:</b> {days_until_start} дней\n"
             f"<b>Выполнено:</b> {total_completed_volume} м²\n"
-            f"<b>Объем ♦ :</b> {stage.volume} м²\n"
-            f"<b>Количество рабочих:</b> {stage.number_of_workers}\n"
+            f"<b>Объем этапа:</b> {selected_stage.volume} м²\n"
+            f"<b>Количество рабочих:</b> {selected_stage.number_of_workers}\n"
             f"<b>Нужно выполнять в день:</b> {daily_volume_needed:.1f} м²\n"
-            f"<b>Ежедневные отчеты:</b>\n{daily_report_messages}"
         )
     else:
         days_left = (end_date - today).days
-        daily_volume_needed = stage.volume / days_left if days_left > 0 else 0
+        daily_volume_needed = (selected_stage.volume - total_completed_volume) / days_left if days_left > 0 else 0
         report_message = (
             f"<b>Объект:</b> {obj.name}\n"
             f"<b>Конструкция:</b> {construction.name}\n"
-            f"<b>♦</b> {stage.name}\n"
-            f"<b>Дата начала:</b> {start_date.strftime('%d.%m.%Y') if start_date else 'не установлена'}\n"
-            f"<b>Дата окончания:</б> {end_date.strftime('%d.%м.%Y')}\n"
-            f"<b>Осталось:</б> {days_left} дней\n"
-            f"<b>Выполнено:</б> {total_completed_volume} м²\n"
-            f"<b>Объем ♦ :</б> {stage.volume} м²\n"
-            f"<b>Количество рабочих:</б> {stage.number_of_workers}\n"
-            f"<b>Нужно выполнять в день:</б> {daily_volume_needed:.1f} м²\n"
-            f"<b>Ежедневные отчеты:</б>\n{daily_report_messages}"
+            f"<b>Этап:</b> {selected_stage.name}\n"
+            f"<b>Дата начала:</b> {start_date.strftime('%d.%m.%Y')}\n"
+            f"<b>Дата окончания:</b> {end_date.strftime('%d.%m.%Y')}\n"
+            f"<b>Осталось:</b> {days_left} дней\n"
+            f"<b>Выполнено:</b> {total_completed_volume} м²\n"
+            f"<b>Объем этапа:</b> {selected_stage.volume} м²\n"
+            f"<b>Количество рабочих:</b> {selected_stage.number_of_workers}\n"
+            f"<b>Нужно выполнять в день:</b> {daily_volume_needed:.1f} м²\n"
+            f"<b>Ежедневные отчеты:</b>\n{daily_report_messages}"
         )
 
     # Отправка сообщения пользователю
@@ -793,8 +844,10 @@ def select_stage_for_data_entry(message, selected_object, stages, selected_const
 def get_number_of_workers(message):
     try:
         number_of_workers = int(message.text)
+        if number_of_workers < 0:
+            raise ValueError("Количество рабочих не может быть отрицательным.")
     except ValueError:
-        bot.send_message(message.chat.id, "Неверный формат. Введите количество рабочих числом:")
+        bot.send_message(message.chat.id, "Неверный формат. Введите положительное число рабочих:")
         bot.register_next_step_handler(message, get_number_of_workers)
         return
 
@@ -805,14 +858,26 @@ def get_number_of_workers(message):
 def get_completed_volume(message):
     try:
         completed_volume = float(message.text)
+        if completed_volume < 0:
+            raise ValueError("Объем выполненных работ не может быть отрицательным.")
     except ValueError:
-        bot.send_message(message.chat.id, "Неверный формат. Введите объем выполненных работ числом:")
+        bot.send_message(message.chat.id, "Неверный формат. Введите положительное число объема выполненных работ:")
+        bot.register_next_step_handler(message, get_completed_volume)
+        return
+
+    selected_stage = user_sessions[message.chat.id]
+    
+    # Пересчитываем оставшийся объем
+    total_completed_volume = sum(work.volume for work in selected_stage.completed_works.all())
+    remaining_volume = selected_stage.volume - total_completed_volume
+
+    if completed_volume > remaining_volume:
+        bot.send_message(message.chat.id, f"Введенный объем превышает оставшийся объем ({remaining_volume:.1f} м²). Введите корректный объем:")
         bot.register_next_step_handler(message, get_completed_volume)
         return
 
     try:
-        selected_stage = user_sessions.pop(message.chat.id)
-        number_of_workers = selected_stage.number_of_workers_today
+        number_of_workers = user_sessions[message.chat.id].number_of_workers_today
 
         # Сохраняем данные в базу данных
         CompletedWork.objects.create(
@@ -827,8 +892,8 @@ def get_completed_volume(message):
             completed_volume=completed_volume
         )
 
-        # Пересчитываем оставшийся объем
-        total_completed_volume = sum(work.volume for work in selected_stage.completed_works.all())
+        # Пересчитываем оставшийся объем после внесения данных
+        total_completed_volume += completed_volume
         remaining_volume = selected_stage.volume - total_completed_volume
 
         # Логика для создания просрочек
@@ -852,7 +917,7 @@ def get_completed_volume(message):
             # Отправка сообщения ответственному за объект
             responsible_person = selected_stage.construction.object.responsible_person
             if responsible_person:
-                underperformance_info = f"{today.strftime('%d.%m.%Y')}: Не было рабочих: {worker_deficit},\n не выполнено объема: {volume_deficit} м²"
+                underperformance_info = f"{today.strftime('%d.%m.%Y')}: Не было рабочих: {worker_deficit}, не выполнено объема: {volume_deficit} м²"
                 message_text = (
                     f"Объект: {selected_stage.construction.object.name}\n"
                     f"Конструкция: {selected_stage.construction.name}\n"
@@ -864,10 +929,11 @@ def get_completed_volume(message):
         # Отправляем сообщение пользователю о успешном сохранении данных
         bot.send_message(message.chat.id, f"Данные успешно внесены! Остаток объема: {remaining_volume:.1f} м²", reply_markup=get_work_keyboard())
 
-    except ValueError:
-        bot.send_message(message.chat.id, "Произошла ошибка при сохранении данных.")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"Произошла ошибка при сохранении данных: {str(e)}.")
         bot.register_next_step_handler(message, get_completed_volume)
         return
+
 
 @bot.message_handler(func=lambda message: message.text == "3.Гпp")
 def gpr_menu(message):
@@ -1162,24 +1228,48 @@ def director_overdue_stages(message):
         bot.send_message(message.chat.id, "Нет просроченных этапов.")
         return
 
+    objects_with_stages = {stage.construction.object for stage in stages}
+
     reply_markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-    for stage in stages:
-        reply_markup.add(types.KeyboardButton(stage.name))
+    for obj in objects_with_stages:
+        reply_markup.add(types.KeyboardButton(obj.name))
     reply_markup.add(types.KeyboardButton("Назад"))
 
-    bot.send_message(message.chat.id, "Выберите этап:", reply_markup=reply_markup)
-    bot.register_next_step_handler(message, show_stage_info, stages)
+    bot.send_message(message.chat.id, "Выберите объект:", reply_markup=reply_markup)
+    bot.register_next_step_handler(message, select_object_for_overdue_stages, stages)
 
-def show_stage_info(message, stages):
+def select_object_for_overdue_stages(message, stages):
     if message.text == "Назад":
         bot.send_message(message.chat.id, "Вы вернулись назад.", reply_markup=get_director_keyboard())
         return
 
     try:
-        selected_stage = next(stage for stage in stages if stage.name == message.text)
+        selected_object = Object.objects.get(name=message.text)
+    except Object.DoesNotExist:
+        bot.send_message(message.chat.id, "Объект не найден.")
+        director_overdue_stages(message)
+        return
+
+    stages_for_object = [stage for stage in stages if stage.construction.object == selected_object]
+
+    reply_markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    for stage in stages_for_object:
+        reply_markup.add(types.KeyboardButton(stage.name))
+    reply_markup.add(types.KeyboardButton("Назад"))
+
+    bot.send_message(message.chat.id, "Выберите этап:", reply_markup=reply_markup)
+    bot.register_next_step_handler(message, show_stage_info, stages_for_object)
+
+def show_stage_info(message, stages_for_object):
+    if message.text == "Назад":
+        bot.send_message(message.chat.id, "Вы вернулись назад.", reply_markup=get_director_keyboard())
+        return
+
+    try:
+        selected_stage = next(stage for stage in stages_for_object if stage.name == message.text)
     except StopIteration:
         bot.send_message(message.chat.id, "Этап не найден.")
-        director_overdue_stages(message)
+        select_object_for_overdue_stages(message, stages_for_object)
         return
 
     underperformances = selected_stage.underperformances.all()
@@ -1194,7 +1284,7 @@ def show_stage_info(message, stages):
     message_text = (
         f"<b>Объект:</b> {selected_stage.construction.object.name}\n"
         f"<b>Конструкция:</b> {selected_stage.construction.name}\n"
-        f"<b>♦</b> {selected_stage.name}\n"
+        f"<b>Этап:</b> {selected_stage.name}\n"
         f"<b>Руководитель проекта:</b> {selected_stage.construction.object.responsible_person.get_name()}\n"
         f"<b>Количество рабочих:</b> {selected_stage.number_of_workers}\n"
         f"<b>Нужно выполнять в день:</b> {daily_volume_needed:.1f} м²\n"

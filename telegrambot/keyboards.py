@@ -106,7 +106,7 @@ def get_constructions_keyboard(object_name):
     return keyboard
 
 def get_stages_keyboard(selected_construction):
-    stages = Stage.objects.filter(construction=selected_construction)
+    stages = Stage.objects.filter(construction=selected_construction, completed=False)
     keyboard = types.ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
     for stage in stages:
         keyboard.add(types.KeyboardButton(stage.name))

@@ -6,7 +6,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 SECRET_KEY = 'django-insecure-wy#$1i%+h#b7nekxm*ia=sm)tfbm3r81ck(c7=npd$x#ik^8y^'
-TOKENBOT = '7120717250:AAGOmlAZUWG-tVc25-WzTj3Ey9SKqVUpeQ4'
+# TOKENBOT = '7120717250:AAGOmlAZUWG-tVc25-WzTj3Ey9SKqVUpeQ4'
+TOKENBOT = '6995034919:AAHIf4jxD556juYpxL8cz2Za3kLyisyh43Y'
 
 
 DEBUG = True
